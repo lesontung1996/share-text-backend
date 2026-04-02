@@ -30,8 +30,27 @@ function initSocket(io) {
 
   // ── Connection handler ───────────────────────────────────
   io.on("connection", async (socket) => {
-    // const { participant, roomCode } = socket;
-    socket.emit("message", "Hello, world!");
+    const { participant, roomCode } = socket;
+    socket.emit("message", `Hello, world! fasdf ${participant} in room ${roomCode}`);
+
+    socket.on("room:joined", async (data) => {
+      const { room_code } = data;
+      socket.join(room_code);
+      const result = await db.query(
+          "SELECT m.*, r.room_code, r.expires_at, r.max_participants FROM messages m JOIN rooms r ON m.room_id = r.id WHERE r.room_code = $1",
+          [room_code],
+        );
+      socket.emit("room:joined", result.rows);
+    });
+
+    socket.on("message:new", async (data) => {
+      const { room_code, content } = data;
+      const result = await db.query(
+          "INSERT INTO messages (room_id, content) VALUES ((SELECT id FROM rooms WHERE room_code = $1), $2) RETURNING *",
+          [room_code, content],
+        );
+      io.to(room_code).emit("message:new", result.rows[0]);
+    });
 
     // ── 1. Join the socket.io room ───────────────────────────
     // This is all roomManager.joinRoom() did — one line replaces it
