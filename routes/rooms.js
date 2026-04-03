@@ -61,6 +61,10 @@ const createRoom = async (req, res) => {
       "INSERT INTO rooms (room_code, initial_text, expires_at, max_participants, creator_token) VALUES ($1, $2, $3, $4, $5) RETURNING *",
       [room_code, initial_text, expires_at, max_participants, creator_token],
     );
+    await db.query(
+      "INSERT INTO messages (room_id, author_token, content) VALUES ($1, $2, $3)",
+      [result.rows[0].id, creator_token, initial_text],
+    );
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error(err);

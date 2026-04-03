@@ -1,54 +1,64 @@
 const db = require("../db");
+const { joinRoom } = require("./dbFunctions");
 
 function initSocket(io) {
   // ── Auth middleware — runs before every connection ───────
-  // Replaces the manual token check inside the connection handler
   io.use(async (socket, next) => {
-    // const token = socket.handshake.auth.token;
-    // const roomCode = socket.handshake.auth.roomCode;
+    // const { sessionToken, roomCode } = socket.handshake.auth;
 
-    // if (!token || !roomCode) {
+    // 
+    // if (!roomCode) {
     //   return next(new Error("UNAUTHORIZED"));
     // }
 
-    // const participant = await db.query(
-    //   `SELECT p.*, r.is_active, r.expires_at
-    //    FROM participants p
-    //    JOIN rooms r ON r.id = p.room_id
-    //    WHERE p.session_token = $1 AND r.room_code = $2`,
-    //   [token, roomCode],
-    // );
-
-    // if (!participant) return next(new Error("FORBIDDEN"));
-    // // if (!participant.is_active) return next(new Error("GONE"));
-
-    // // Attach to socket so event handlers can read it
-    // socket.participant = participant;
-    // socket.roomCode = roomCode;
+    // try {
+    //   const { newToken } = await joinRoom(socket, roomCode, sessionToken);
+    //   // Store so the connection handler can emit it once the socket is live
+    //   if (newToken) socket.newToken = newToken;
+    //   next();
+    // } catch (err) {
+    //   next(new Error(err.code ?? "UNAUTHORIZED"));
+    // }
     next();
   });
 
   // ── Connection handler ───────────────────────────────────
   io.on("connection", async (socket) => {
-    const { participant, roomCode } = socket;
-    socket.emit("message", `Hello, world! fasdf ${participant} in room ${roomCode}`);
+    socket.on("authenticate", async (data) => {
+      const { sessionToken, roomCode } = data;
+
+      if (!roomCode) {
+        return socket.emit("error", { message: "Room code is required" });
+      }
+
+      try {
+        const { newToken } = await joinRoom(socket, roomCode, sessionToken);
+        // Store so the connection handler can emit it once the socket is live
+        if (newToken) {
+          socket.newToken = newToken;
+          return socket.emit("authenticate", { sessionToken: newToken });
+        }
+      } catch (err) {
+        socket.emit("error", { message: err.code ?? "UNAUTHORIZED" });
+      }
+    });
 
     socket.on("room:joined", async (data) => {
       const { room_code } = data;
       socket.join(room_code);
       const result = await db.query(
-          "SELECT m.*, r.room_code, r.expires_at, r.max_participants FROM messages m JOIN rooms r ON m.room_id = r.id WHERE r.room_code = $1",
-          [room_code],
-        );
+        "SELECT m.*, r.room_code, r.expires_at, r.max_participants FROM messages m JOIN rooms r ON m.room_id = r.id WHERE r.room_code = $1",
+        [room_code],
+      );
       socket.emit("room:joined", result.rows);
     });
 
     socket.on("message:new", async (data) => {
       const { room_code, content } = data;
       const result = await db.query(
-          "INSERT INTO messages (room_id, content) VALUES ((SELECT id FROM rooms WHERE room_code = $1), $2) RETURNING *",
-          [room_code, content],
-        );
+        "INSERT INTO messages (room_id, content, author_token, author_alias) VALUES ((SELECT id FROM rooms WHERE room_code = $1), $2, $3, $4) RETURNING *",
+        [room_code, content, socket.sessionToken, socket.participant?.alias],
+      );
       io.to(room_code).emit("message:new", result.rows[0]);
     });
 
@@ -120,8 +130,7 @@ function initSocket(io) {
   //      WHERE expires_at < now() AND is_active = TRUE
   //      RETURNING room_code`,
   //   );
-  //   console.log("expired", expired);
-  //   for (const { room_code } of expired) {
+  //     //   for (const { room_code } of expired) {
   //     io.to(room_code).emit("room.expired", { message: "Room has expired" });
   //   }
   // }, 60_000);

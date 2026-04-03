@@ -19,14 +19,10 @@ const requireSession = async (req, res, next) => {
 
   const { room_code } = req.params;
 
-  console.log("token", token, JSON.stringify(req.headers));
-
   const participant = await db.query(
     `SELECT p.*, r.is_active, r.expires_at FROM participants p JOIN rooms r ON p.room_id = r.id WHERE p.session_token = $1 AND r.room_code = $2`,
     [token, room_code],
   );
-
-  console.log("participant", participant.rows[0]);
 
   if (!participant.rows.length) {
     return res.status(403).json({
@@ -50,7 +46,6 @@ const requireSession = async (req, res, next) => {
   }
 
   req.participant = participant.rows[0];
-  console.log("req.participant", req.participant);
   next();
 };
 
