@@ -47,7 +47,7 @@ function initSocket(io) {
       const { room_code } = data;
       socket.join(room_code);
       const result = await db.query(
-        "SELECT m.*, r.room_code, r.expires_at, r.max_participants FROM messages m JOIN rooms r ON m.room_id = r.id WHERE r.room_code = $1",
+        "SELECT m.*, r.room_code, r.expires_at, r.max_participants, (SELECT alias FROM participants WHERE session_token = m.author_token) AS alias FROM messages m JOIN rooms r ON m.room_id = r.id WHERE r.room_code = $1",
         [room_code],
       );
       socket.emit("room:joined", result.rows);
@@ -55,10 +55,12 @@ function initSocket(io) {
 
     socket.on("message:new", async (data) => {
       const { room_code, content } = data;
+      console.log("Received message:new", { room_code, content, sessionToken: socket.sessionToken }); 
       const result = await db.query(
-        "INSERT INTO messages (room_id, content, author_token, author_alias) VALUES ((SELECT id FROM rooms WHERE room_code = $1), $2, $3, $4) RETURNING *",
-        [room_code, content, socket.sessionToken, socket.participant?.alias],
+        "INSERT INTO messages (room_id, content, author_token, author_alias) VALUES ((SELECT id FROM rooms WHERE room_code = $1), $2, $3, (SELECT alias FROM participants WHERE session_token = $3::varchar)) RETURNING *",
+        [room_code, content, socket.sessionToken],
       );
+      console.log("Message inserted", result.rows[0]);
       io.to(room_code).emit("message:new", result.rows[0]);
     });
 

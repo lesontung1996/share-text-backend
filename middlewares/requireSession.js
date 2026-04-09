@@ -19,33 +19,35 @@ const requireSession = async (req, res, next) => {
 
   const { room_code } = req.params;
 
-  const participant = await db.query(
-    `SELECT p.*, r.is_active, r.expires_at FROM participants p JOIN rooms r ON p.room_id = r.id WHERE p.session_token = $1 AND r.room_code = $2`,
-    [token, room_code],
-  );
-
-  if (!participant.rows.length) {
-    return res.status(403).json({
-      error: "FORBIDDEN",
-      message: "Session token is not valid for this room",
-    });
+  if (room_code) {
+    const participant = await db.query(
+      `SELECT p.*, r.is_active, r.expires_at FROM participants p JOIN rooms r ON p.room_id = r.id WHERE p.session_token = $1 AND r.room_code = $2`,
+      [token, room_code],
+    );
+  
+    if (!participant.rows.length) {
+      return res.status(403).json({
+        error: "FORBIDDEN",
+        message: "Session token is not valid for this room",
+      });
+    }
+  
+    if (!participant.rows[0].is_active) {
+      return res.status(403).json({
+        error: "FORBIDDEN",
+        message: "Room is not active",
+      });
+    }
+  
+    if (participant.rows[0].expires_at < new Date()) {
+      return res.status(410).json({
+        error: "GONE",
+        message: "Room has expired",
+      });
+    }
+    req.participant = participant.rows[0];
   }
 
-  if (!participant.rows[0].is_active) {
-    return res.status(403).json({
-      error: "FORBIDDEN",
-      message: "Room is not active",
-    });
-  }
-
-  if (participant.rows[0].expires_at < new Date()) {
-    return res.status(410).json({
-      error: "GONE",
-      message: "Room has expired",
-    });
-  }
-
-  req.participant = participant.rows[0];
   next();
 };
 
